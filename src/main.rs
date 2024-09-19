@@ -29,7 +29,9 @@ impl EventHandler for Bot {
             if let Err(e) = msg.channel_id.say(&ctx.http, "amFOSS Daemon is up and running!").await {
                 error!("ERROR: Could not send message: {:?}.", e);
             }
-        } 
+        } else if msg.content == "$presense -l" {
+            send_presense_present_list(ctx).await;
+        }
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
@@ -37,6 +39,36 @@ impl EventHandler for Bot {
 
         send_presense_report(ctx).await;
     }
+}
+
+async fn send_presense_present_list(ctx: Context) {
+    let members = get_presense_data().await.expect("");
+
+    let mut present_members: Vec<String> = Vec::new();
+    for member in members {
+        if member.active_time != "Absent" {
+            present_members.push(member.name);
+        }
+    }
+    
+    let datetime = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
+    let date_str = datetime.format("%d %B %Y").to_string();
+
+    let mut list = format!(
+        "# Attendance Report - {}\n",
+        date_str
+    );
+
+    if !present_members.is_empty() {
+        list.push_str(&format!("\n## Present\n"));
+        for (index, name) in present_members.iter().enumerate() {
+            list.push_str(&format!("{}. {}\n", index + 1, name));
+        }
+    }
+    // TODO: abstract into send_message(ctx, msg) function
+    const THE_LAB_CHANNEL_ID: u64 = 1252600949164474391;
+    let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
+    channel_id.say(&ctx.http, list).await.expect("");
 }
 
 async fn send_presense_report(ctx: Context) {
