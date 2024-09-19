@@ -2,17 +2,17 @@ use chrono::Timelike;
 use chrono::Utc;
 use chrono::NaiveTime;
 use chrono_tz::Asia::Kolkata;
-
-use tracing::{error, info};
-
-use serenity::prelude::*;
-use serenity::model::{
-    channel::Message, 
-    gateway::Ready};
-
+use tracing::error;
+use serenity::model::channel::Message;
 use reqwest::Error as ReqwestError;
 use serde::Deserialize;
+use poise::serenity_prelude as serenity;
+use anyhow::Context as _;
+use shuttle_runtime::SecretStore;
+use shuttle_serenity::ShuttleSerenity;
+use serenity::prelude::*;
 
+struct Data {}
 
 #[derive(Debug, Deserialize)]
 struct Member {
@@ -20,32 +20,39 @@ struct Member {
     last_seen: String,
     login_time: String,
     name: String,
-    #[serde(rename = "rollNo")]
-    roll_no: String,
+    
 }
+/*
+#[serde(rename = "rollNo")]
+    roll_no: String,
+ */
+struct Handler;
 
-struct Bot;
+type Error = Box<dyn std::error::Error + Send + Sync>;
+type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[serenity::async_trait]
-impl EventHandler for Bot {
-    async fn message(&self, ctx: Context, msg: Message) {
-        if msg.content == "$amdctl" {
-            if let Err(e) = msg.channel_id.say(&ctx.http, "amFOSS Daemon is up and running!").await {
-                error!("ERROR: Could not send message: {:?}.", e);
-            }
-        } else if msg.content == "$presense -l" {
-            send_presense_present_list(ctx).await;
-        }
-    }
-
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        info!("{} is online!", ready.user.name);
+impl EventHandler for Handler {
+    async fn ready(&self, ctx: serenity::Context, ready: serenity::Ready) {
+        println!("{} is online!", ready.user.name);
 
         send_presense_report(ctx).await;
     }
 }
 
-async fn send_presense_present_list(ctx: Context) {
+#[poise::command(prefix_command)]
+async fn amdctl(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("amFOSS Daemon is up and running!").await?;
+    Ok(())
+}
+
+#[poise::command(prefix_command)]
+async fn presence_list(ctx: Context<'_>) -> Result<(), Error> {
+    send_presense_present_list(ctx).await;
+    Ok(())
+}
+
+async fn send_presense_present_list(ctx: Context<'_>) {
     let members = get_presense_data().await.expect("");
 
     let mut present_members: Vec<String> = Vec::new();
@@ -70,12 +77,10 @@ async fn send_presense_present_list(ctx: Context) {
         }
     }
 
-    const THE_LAB_CHANNEL_ID: u64 = 1252600949164474391;
-    let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
-    channel_id.say(&ctx.http, list).await.expect("");
+    ctx.say(list).await.expect("");
 }
 
-async fn send_presense_report(ctx: Context) {
+async fn send_presense_report(ctx: serenity::Context) {
     // TODO: Test if necessary
     let ctx = std::sync::Arc::new(ctx);
 
@@ -85,7 +90,7 @@ async fn send_presense_report(ctx: Context) {
     loop {
         interval.tick().await;
 
-        const THE_LAB_CHANNEL_ID: u64 = 1208438766893670451;
+        const THE_LAB_CHANNEL_ID: u64 = 1281182109670572054;
         let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
 
         let kolkata_now = Utc::now().with_timezone(&Kolkata);
@@ -206,21 +211,42 @@ async fn get_presense_data() -> Result<Vec<Member>, ReqwestError> {
 }
 
 #[shuttle_runtime::main]
-async fn serenity(
-    #[shuttle_runtime::Secrets] secrets: shuttle_runtime::SecretStore,
-) -> shuttle_serenity::ShuttleSerenity {
+async fn main(#[shuttle_runtime::Secrets] secret_store: SecretStore) -> ShuttleSerenity  {
     // Get the discord token set in `Secrets.toml`
-    let token = secrets
-        .get("DISCORD_TOKEN")
-        .expect("'DISCORD_TOKEN' was not found");
-
+    let token = secret_store
+    .get("DISCORD_TOKEN")
+    .context("'DISCORD_TOKEN' was not found")?;
+    
     // Set gateway intents, which decides what events the bot will be notified about
-    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+    let intents = serenity::GatewayIntents::GUILD_MESSAGES | serenity::GatewayIntents::MESSAGE_CONTENT | serenity::GatewayIntents::GUILD_MEMBERS | serenity::GatewayIntents::GUILD_PRESENCES;
 
-    let client = Client::builder(&token, intents)
-        .event_handler(Bot)
+    let framework = poise::Framework::builder()
+        .options(poise::FrameworkOptions {
+            prefix_options: poise::PrefixFrameworkOptions {
+                prefix: Some('$'.into()),
+                case_insensitive_commands: true,
+                ..Default::default()
+            },
+            commands: vec![
+                amdctl(),
+                presence_list(),
+            ],
+            ..Default::default()
+        })
+        .setup(|ctx, _ready, framework| {
+            Box::pin(async move {
+                println!("Logged in as {}", _ready.user.name);
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                Ok(Data {})
+            })
+        })
+        .build();
+
+    let client = serenity::Client::builder(token, intents)
+        .event_handler(Handler)
+        .framework(framework)
         .await
         .expect("ERROR: Could not create client.");
 
-    Ok(client.into())
+        Ok(client.into())
 }
