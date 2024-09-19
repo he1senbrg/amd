@@ -1,13 +1,17 @@
 use chrono::Timelike;
-use anyhow::Context as _;
-use serenity::async_trait;
-use serenity::model::channel::Message;
-use serenity::model::gateway::Ready;
-use serenity::prelude::*;
-use shuttle_runtime::SecretStore;
+use chrono::Utc;
+use chrono::NaiveTime;
+use chrono_tz::Asia::Kolkata;
+
 use tracing::{error, info};
-use serde::Deserialize;
+
+use serenity::prelude::*;
+use serenity::model::{
+    channel::Message, 
+    gateway::Ready};
+
 use reqwest::Error as ReqwestError;
+use serde::Deserialize;
 
 
 #[derive(Debug, Deserialize)]
@@ -22,7 +26,7 @@ struct Member {
 
 struct Bot;
 
-#[async_trait]
+#[serenity::async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content == "$amdctl" {
@@ -51,7 +55,7 @@ async fn send_presense_present_list(ctx: Context) {
         }
     }
     
-    let datetime = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
+    let datetime = Utc::now().with_timezone(&Kolkata);
     let date_str = datetime.format("%d %B %Y").to_string();
 
     let mut list = format!(
@@ -65,13 +69,14 @@ async fn send_presense_present_list(ctx: Context) {
             list.push_str(&format!("{}. {}\n", index + 1, name));
         }
     }
-    // TODO: abstract into send_message(ctx, msg) function
+
     const THE_LAB_CHANNEL_ID: u64 = 1252600949164474391;
     let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
     channel_id.say(&ctx.http, list).await.expect("");
 }
 
 async fn send_presense_report(ctx: Context) {
+    // TODO: Test if necessary
     let ctx = std::sync::Arc::new(ctx);
 
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
@@ -80,12 +85,10 @@ async fn send_presense_report(ctx: Context) {
     loop {
         interval.tick().await;
 
-        let kolkata_now = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
-
-
         const THE_LAB_CHANNEL_ID: u64 = 1208438766893670451;
         let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
 
+        let kolkata_now = Utc::now().with_timezone(&Kolkata);
         if kolkata_now.hour() == 18 && kolkata_now.minute() == 00 {
 
             let initial_message = generate_report().await;
@@ -112,7 +115,7 @@ async fn send_presense_report(ctx: Context) {
 
 async fn generate_report() -> String {
 
-    let datetime = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
+    let datetime = Utc::now().with_timezone(&Kolkata);
     let (absentees, late) = get_stragglers().await.expect("");
 
     let date_str = datetime.format("%d %B %Y").to_string();
@@ -170,8 +173,8 @@ async fn get_stragglers() -> Result<(Vec<String>, Vec<String>), ReqwestError> {
 }
 
 fn is_late(time: &str) -> bool {
-    if let Ok(time) = chrono::NaiveTime::parse_from_str(time, "%H:%M") {
-        let five_forty_five_pm = chrono::NaiveTime::from_hms_opt(17, 45, 0).expect("Hardcoded value cannot fail.");
+    if let Ok(time) = NaiveTime::parse_from_str(time, "%H:%M") {
+        let five_forty_five_pm = NaiveTime::from_hms_opt(17, 45, 0).expect("Hardcoded value cannot fail.");
         return time > five_forty_five_pm;
     } else {
         error!("ERROR: Could not parse login_time for member.");
@@ -180,8 +183,8 @@ fn is_late(time: &str) -> bool {
 }
 
 fn absent_for_more_than_thirty_min(time: &str) -> bool {
-    if let Ok(last_seen_time) = chrono::NaiveTime::parse_from_str(time, "%H:%M") {
-        let kolkata_time_now = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata).time();
+    if let Ok(last_seen_time) = NaiveTime::parse_from_str(time, "%H:%M") {
+        let kolkata_time_now = Utc::now().with_timezone(&Kolkata).time();
 
         let duration_since_last_seen = kolkata_time_now.signed_duration_since(last_seen_time);
         let thirty_minutes = chrono::Duration::minutes(30);
@@ -204,12 +207,12 @@ async fn get_presense_data() -> Result<Vec<Member>, ReqwestError> {
 
 #[shuttle_runtime::main]
 async fn serenity(
-    #[shuttle_runtime::Secrets] secrets: SecretStore,
+    #[shuttle_runtime::Secrets] secrets: shuttle_runtime::SecretStore,
 ) -> shuttle_serenity::ShuttleSerenity {
     // Get the discord token set in `Secrets.toml`
     let token = secrets
         .get("DISCORD_TOKEN")
-        .context("'DISCORD_TOKEN' was not found")?;
+        .expect("'DISCORD_TOKEN' was not found");
 
     // Set gateway intents, which decides what events the bot will be notified about
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
