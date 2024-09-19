@@ -98,7 +98,7 @@ async fn send_presense_report(ctx: serenity::Context) {
 
             let initial_message = generate_report().await;
 
-            sent_message = match channel_id.say(&ctx.http(), &initial_message).await {
+            sent_message = match channel_id.say(&ctx.http, &initial_message).await {
                 Ok(msg) => Some(msg),
                 Err(why) => {
                     println!("ERROR: Could not send message: {:?}", why);
@@ -112,7 +112,7 @@ async fn send_presense_report(ctx: serenity::Context) {
                 let new_message = generate_report().await;
                 
                 let edited_message = serenity::builder::EditMessage::new().content(new_message);
-                channel_id.edit_message(&ctx.http(), &initial_message.id, edited_message).await.expect("");
+                channel_id.edit_message(&ctx.http, &initial_message.id, edited_message).await.expect("");
             }
         }
     }
