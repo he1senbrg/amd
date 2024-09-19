@@ -94,7 +94,7 @@ async fn send_presense_report(ctx: serenity::Context) {
         let channel_id = serenity::model::id::ChannelId::new(THE_LAB_CHANNEL_ID);
 
         let kolkata_now = Utc::now().with_timezone(&Kolkata);
-        if kolkata_now.hour() == 15 && kolkata_now.minute() == 03 {
+        if kolkata_now.hour() == 18 && kolkata_now.minute() == 00 {
 
             let initial_message = generate_report().await;
 
@@ -107,7 +107,7 @@ async fn send_presense_report(ctx: serenity::Context) {
             }
         }
 
-        if kolkata_now.hour() == 15 && kolkata_now.minute() == 04 {
+        if kolkata_now.hour() == 19 && kolkata_now.minute() == 00 {
             if let Some(initial_message) = &sent_message {
                 let new_message = generate_report().await;
                 
